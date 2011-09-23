@@ -25,24 +25,7 @@ var assert = require('assert');
 var spawn = require('child_process').spawn;
 var debug = require('_debugger');
 
-var code = [
-  '',
-  'debugger;',
-  'debugger;',
-  'function a(x) {',
-  '  var i = 10;',
-  '  while (--i != 0);',
-  '  debugger;',
-  '  return i;',
-  '}',
-  'function b() {',
-  '  return ["hello", "world"].join(" ");',
-  '}',
-  'a()',
-  'a(1)',
-  'b()',
-  'b()'
-].join('\n');
+var code = require('fs').readFileSync(common.fixturesDir + '/breakpoints.js');
 
 var child = spawn(process.execPath, ['debug', '-e', code]);
 
@@ -102,10 +85,10 @@ addTest(null, [
 addTest('n', [
   "debug> debug> debug> break in [unnamed]:13",
   " 11   return [\"hello\", \"world\"].join(\" \");",
-  " 12 }",
-  " 13 a()",
-  " 14 a(1)",
-  " 15 b()"
+  " 12 };",
+  " 13 a();",
+  " 14 a(1);",
+  " 15 b();"
 ]);
 
 // Continue
@@ -115,23 +98,22 @@ addTest('c', [
   "  6   while (--i != 0);",
   "  7   debugger;",
   "  8   return i;",
-  "  9 }"
+  "  9 };"
 ]);
 
 
 // Step out
 addTest('o', [
   "debug> debug> debug> break in [unnamed]:14",
-  " 12 }",
-  " 13 a()",
-  " 14 a(1)",
-  " 15 b()",
-  " 16 b()"
+  " 12 };",
+  " 13 a();",
+  " 14 a(1);",
+  " 15 b();",
+  " 16 b();"
 ]);
 
 
 function finish() {
-  console.log('passed');
   process.exit(0);
 };
 
