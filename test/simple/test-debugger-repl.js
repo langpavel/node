@@ -30,6 +30,7 @@ var code = require('fs').readFileSync(common.fixturesDir + '/breakpoints.js');
 var child = spawn(process.execPath, ['debug', '-e', code]);
 
 var buffer = '';
+child.stdout.setEncoding('utf-8');
 child.stdout.on('data', function(data) {
   data = (buffer + data.toString()).split(/\n/g);
   buffer = data.pop();
