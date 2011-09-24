@@ -2364,13 +2364,6 @@ static void EnableDebug(bool wait_connect) {
 
 #ifdef __POSIX__
 static void EnableDebugSignalHandler(int signal) {
-#endif // __POSIX__
-
-#if defined(__MINGW32__) || defined(_MSC_VER)
-static bool EnableDebugSignalHandler(DWORD signal) {
-  if (signal != CTRL_BREAK_EVENT) return TRUE;
-#endif
-
   // Break once process will return execution to v8
   v8::Debug::DebugBreak();
 
@@ -2378,11 +2371,24 @@ static bool EnableDebugSignalHandler(DWORD signal) {
     fprintf(stderr, "Hit SIGUSR1 - starting debugger agent.\n");
     EnableDebug(false);
   }
+}
+#endif // __POSIX__
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  return FALSE;
-#endif
+static bool EnableDebugSignalHandler(DWORD signal) {
+  if (signal != CTRL_BREAK_EVENT) return false;
+
+  // Break once process will return execution to v8
+  v8::Debug::DebugBreak();
+
+  if (!debugger_running) {
+    fprintf(stderr, "Hit Ctrl+Break - starting debugger agent.\n");
+    EnableDebug(false);
+  }
+
+  return true;
 }
+#endif
 
 
 #ifdef __POSIX__
