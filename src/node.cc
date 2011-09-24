@@ -2376,6 +2376,7 @@ static void EnableDebugSignalHandler(int signal) {
 
 #if defined(__MINGW32__) || defined(_MSC_VER)
 static bool EnableDebugSignalHandler(DWORD signal) {
+  return true;
   if (signal != CTRL_BREAK_EVENT) return false;
 
   // Break once process will return execution to v8
