@@ -1612,7 +1612,7 @@ Handle<Value> Kill(const Arguments& args) {
   r = kill(pid, sig);
 #endif
 #if defined(__MINGW32__) || defined(_MSC_VER)
-  r = GenerateConsoleCtrlEvent(sig, pid) ? 1 : 0;
+  r = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid) ? 1 : 0;
 #endif
 
   if (r != 0) return ThrowException(ErrnoException(errno, "kill"));
