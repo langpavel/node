@@ -752,6 +752,12 @@ void DefineConstants(Handle<Object> target) {
   NODE_DEFINE_CONSTANT(target, SIGKILL);
 #endif
 
+#ifndef SIGUSR1
+#if defined(__MINGW32__) || defined(_MSC_VER)
+#define SIGUSR1 CTRL_BREAK_EVENT
+#endif
+#endif
+
 #ifdef SIGUSR1
   NODE_DEFINE_CONSTANT(target, SIGUSR1);
 #endif

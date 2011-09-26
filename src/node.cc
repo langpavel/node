@@ -1596,8 +1596,6 @@ v8::Handle<v8::Value> MemoryUsage(const v8::Arguments& args) {
 }
 
 
-#ifdef __POSIX__
-
 Handle<Value> Kill(const Arguments& args) {
   HandleScope scope;
 
@@ -1607,13 +1605,23 @@ Handle<Value> Kill(const Arguments& args) {
 
   pid_t pid = args[0]->IntegerValue();
   int sig = args[1]->Int32Value();
-  int r = kill(pid, sig);
+
+  int r = 0;
+
+#ifdef __POSIX__
+  r = kill(pid, sig);
+#endif
+#if defined(__MINGW32__) || defined(_MSC_VER)
+  r = GenerateConsoleCtrlEvent(sig, pid) ? 1 : 0;
+#endif
 
   if (r != 0) return ThrowException(ErrnoException(errno, "kill"));
 
   return Undefined();
 }
 
+
+#ifdef __POSIX__
 
 typedef void (*extInit)(Handle<Object> exports);
 
@@ -2168,6 +2176,9 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "dlopen", DLOpen);
   NODE_SET_METHOD(process, "_kill", Kill);
 #endif // __POSIX__
+#if defined(__MINGW32__) || defined(_MSC_VER)
+  NODE_SET_METHOD(process, "_kill", Kill);
+#endif
 
   NODE_SET_METHOD(process, "uptime", Uptime);
   NODE_SET_METHOD(process, "memoryUsage", MemoryUsage);
