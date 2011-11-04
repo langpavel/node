@@ -2142,7 +2142,7 @@ static void EnableDebug(bool wait_connect) {
 
 
 #ifdef __POSIX__
-static bool EnableDebugSignalHandler(int signal) {
+static void EnableDebugSignalHandler(int signal) {
   // Break once process will return execution to v8
   v8::Debug::DebugBreak(node_isolate);
 
@@ -2153,13 +2153,13 @@ static bool EnableDebugSignalHandler(int signal) {
 }
 
 
-static int RegisterSignalHandler(int signal, void (*handler)(int)) {
+static void RegisterSignalHandler(int signal, void (*handler)(int)) {
   struct sigaction sa;
 
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = handler;
   sigfillset(&sa.sa_mask);
-  return sigaction(signal, &sa, NULL);
+  sigaction(signal, &sa, NULL);
 }
 
 
