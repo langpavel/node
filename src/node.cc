@@ -2388,12 +2388,15 @@ void StartThread(node::Isolate* isolate,
   if (use_debug_agent) {
     Debug::GetInstance()->Enable(debug_wait_connect, debug_port);
   } else {
+#ifdef __POSIX__
     // Listen for OS signals to start debugger eventually
     if (Debug::RegisterDebugSignalHandler() == 0) {
-#ifdef __POSIX__
       RegisterSignalHandler(SIGUSR1, Debug::EnableDebugSignalHandler);
-#endif // __POSIX__
     }
+#endif // __POSIX__
+#ifdef _WIN32
+    Debug::RegisterDebugSignalHandler();
+#endif // _WIN32
   }
 
   // FIXME crashes with "CHECK(heap->isolate() == Isolate::Current()) failed"

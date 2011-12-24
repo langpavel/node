@@ -76,8 +76,7 @@ class Debug : ObjectWrap {
 
     // Set the callback DebugMessageDispatch which is called from the debug
     // thread.
-    v8::Debug::SetDebugMessageDispatchHandler(node::Debug::MessageDispatch,
-                                              true);
+    v8::Debug::SetDebugMessageDispatchHandler(node::Debug::MessageDispatch);
 
     // Initialize the async watcher. DebugMessageCallback() is called from the
     // main thread to execute a random bit of javascript - which will give V8

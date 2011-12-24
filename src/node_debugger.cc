@@ -109,7 +109,9 @@ void Debug::Enable(bool wait_connect, unsigned short debug_port) {
     // Print out some information.
     fprintf(stderr, "debugger listening on port %d\n", debug_port);
     fflush(stderr);
-  } else {
+  }
+
+  if (wait_connect) {
     // Break current isolate
     v8::Debug::DebugBreak(isolate_);
   }
