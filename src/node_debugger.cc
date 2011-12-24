@@ -131,7 +131,6 @@ Handle<Value> Debug::Pause(const Arguments& args) {
 
 
 void Debug::MessageCallback(uv_async_t* watcher, int status) {
-  HandleScope scope;
   assert(watcher == &debug_watcher);
   v8::Debug::ProcessDebugMessages();
 }
