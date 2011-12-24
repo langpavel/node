@@ -132,22 +132,6 @@ Handle<Value> Debug::Pause(const Arguments& args) {
 }
 
 
-void Debug::MessageCallback(uv_async_t* watcher, int status) {
-  assert(watcher == &debug_watcher);
-  v8::Debug::ProcessDebugMessages();
-}
-
-
-void Debug::MessageDispatch(void) {
-  // This function is called from V8's debug thread when a debug TCP client
-  // has sent a message.
-
-  // Send a signal to our main thread saying that it should enter V8 to
-  // handle the message.
-  uv_async_send(&debug_watcher);
-}
-
-
 void Debug::SignalBreak(void) {
   if (!main_debugger_->running_) {
 #ifdef __POSIX__

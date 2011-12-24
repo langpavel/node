@@ -172,7 +172,6 @@ struct globals {
 
   // node_debugger.cc
   v8::Persistent<v8::Object> debug_instance;
-  uv_async_t debug_watcher;
 
   // cares_wrap.cc
   ::ares_channel ares_channel;

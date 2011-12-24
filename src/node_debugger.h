@@ -51,8 +51,6 @@ class Debug : ObjectWrap {
     // debug-agent.cc of v8/src when a new session is created
   }
 
-  static void MessageCallback(uv_async_t* watcher, int status);
-  static void MessageDispatch(void);
   static int RegisterDebugSignalHandler(void);
 
   void Enable(bool wait_connect, unsigned short debug_port);
@@ -73,20 +71,6 @@ class Debug : ObjectWrap {
         isolate_(isolate),
         node_isolate_(node_isolate),
         running_(false) {
-
-    // Set the callback DebugMessageDispatch which is called from the debug
-    // thread.
-    v8::Debug::SetDebugMessageDispatchHandler(node::Debug::MessageDispatch);
-
-    // Initialize the async watcher. DebugMessageCallback() is called from the
-    // main thread to execute a random bit of javascript - which will give V8
-    // control so it can handle whatever new message had been received on the
-    // debug thread.
-    uv_async_init(node_isolate->GetLoop(), &debug_watcher,
-                  node::Debug::MessageCallback);
-
-    // unref it so that we exit the event loop despite it being active.
-    uv_unref(node_isolate->GetLoop());
   }
   ~Debug() {};
 
