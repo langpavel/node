@@ -61,7 +61,6 @@ struct globals {
   v8::Persistent<v8::Object> binding_cache;
   v8::Persistent<v8::Array> module_load_list;
   v8::Isolate* node_isolate;
-  volatile bool debugger_running;
   double prog_start_time;
 
   // stream_wrap.cc

@@ -127,7 +127,6 @@ extern char **environ;
 #define binding_cache NODE_VAR(binding_cache)
 #define module_load_list NODE_VAR(module_load_list)
 #define node_isolate NODE_VAR(node_isolate)
-#define debugger_running NODE_VAR(debugger_running)
 #define prog_start_time NODE_VAR(prog_start_time)
 
 namespace node {
@@ -2387,12 +2386,11 @@ void StartThread(node::Isolate* isolate,
   // If the --debug flag was specified then initialize the debug thread.
   // by calling process._debugger.start(wait_connect, port)
   if (use_debug_agent) {
-    Debug::Start(debug_wait_connect, debug_port);
+    Debug::GetInstance()->Enable(debug_wait_connect, debug_port);
   } else {
     // Listen for OS signals to start debugger eventually
-#ifdef _WIN32
     Debug::RegisterDebugSignalHandler();
-#else // Posix
+#ifdef __POSIX__
     RegisterSignalHandler(SIGUSR1, Debug::EnableDebugSignalHandler);
 #endif // __POSIX__
   }

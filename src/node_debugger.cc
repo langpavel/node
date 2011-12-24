@@ -29,14 +29,16 @@
 #include <errno.h>
 #include <assert.h>
 
-#define debug_instance NODE_VAR(debug_instance)
 #define process NODE_VAR(process)
+#define debug_instance NODE_VAR(debug_instance)
 
 #define UNWRAP Debug *d = ObjectWrap::Unwrap<Debug>(args.Holder())
 
 using namespace v8;
 
 namespace node {
+
+static Debug* main_debugger_ = NULL;
 
 void Debug::Initialize() {
   HandleScope scope;
@@ -51,6 +53,7 @@ void Debug::Initialize() {
 
   Handle<Value> argv[0];
   Handle<Object> debug_instance_ = t->GetFunction()->NewInstance(0, argv);
+
   process->Set(String::NewSymbol("_debugger"), debug_instance_);
   debug_instance = Persistent<Object>::New(debug_instance_);
 }
@@ -111,7 +114,7 @@ void Debug::Enable(bool wait_connect, unsigned short debug_port) {
     v8::Debug::DebugBreak(isolate_);
   }
 
-  running = true;
+  running_ = true;
 
   isolate_->Exit();
 }
@@ -144,42 +147,47 @@ void Debug::MessageDispatch(void) {
 }
 
 
-void Debug::Start(bool wait_connect, unsigned short debug_port) {
-  Handle<Object> debugger = Debug::GetInstance();
-  Handle<Object> fn  = debugger->Get(String::NewSymbol("enable"))->ToObject();
-  assert(fn->IsFunction());
-
-  Local<Value> argv[2] = {
-    Local<Value>::New(wait_connect ? True() : False()),
-    Local<Value>::New(Number::New(debug_port))
-  };
-
-  fn->CallAsFunction(debugger, 2, argv);
+void Debug::SignalBreak(void) {
+  if (!main_debugger_->running_) {
+#ifdef __POSIX__
+    v8::Debug::DebugBreak(main_debugger_->isolate_);
+    fprintf(stderr, "Hit SIGUSR1 - starting debugger agent.\n");
+    main_debugger_->Enable(false, 5858);
+#endif // __POSIX__
+#ifdef _WIN32
+    for (int i = 0; i < 1; i++) {
+      fprintf(stderr, "Starting debugger agent.\r\n");
+      fflush(stderr);
+      main_debugger_->Enable(false, 5858);
+    }
+    v8::Debug::DebugBreak(main_debugger_->isolate_);
+#endif // _WIN32
+  }
 }
 
 
-Handle<Object> GetInstance(void) {
+Debug* Debug::GetInstance(void) {
   // Lazily initialize debugger and insert correct _debugger
   // property into `process` variable
   if (debug_instance.IsEmpty()) {
     Debug::Initialize();
   }
 
-  return debug_instance;
+  return ObjectWrap::Unwrap<Debug>(debug_instance);
 }
+
 
 // Platform specific Attach() implementation
 
 #ifdef __POSIX__
+void Debug::RegisterDebugSignalHandler(void) {
+  main_debugger_ = Debug::GetInstance();
+  // node.cc will register actual handler
+}
+
 // FIXME this is positively unsafe with isolates/threads
 void Debug::EnableDebugSignalHandler(int signal) {
-  // Break once process will return execution to v8
-  v8::Debug::DebugBreak(node_isolate);
-
-  if (!debugger_running) {
-    fprintf(stderr, "Hit SIGUSR1 - starting debugger agent.\n");
-    EnableDebug(false);
-  }
+  Debug::SignalBreak();
 }
 
 
@@ -206,7 +214,9 @@ Handle<Value> Debug::Attach(const Arguments& args) {
 
 
 #ifdef _WIN32
-int Debug::RegisterDebugSignalHandler() {
+void Debug::RegisterDebugSignalHandler(void) {
+  main_debugger_ = Debug::GetInstance();
+
   char mapping_name[32];
   HANDLE mapping_handle;
   DWORD pid;
@@ -249,17 +259,7 @@ int Debug::RegisterDebugSignalHandler() {
 
 
 DWORD WINAPI EnableDebugThreadProc(void* arg) {
-  // Break once process will return execution to v8
-  if (!debugger_running) {
-    for (int i = 0; i < 1; i++) {
-      fprintf(stderr, "Starting debugger agent.\r\n");
-      fflush(stderr);
-      EnableDebug(false);
-    }
-  }
-
-  v8::Debug::DebugBreak();
-
+  Debug::SignalBreak();
   return 0;
 }
 

@@ -53,26 +53,26 @@ class Debug : ObjectWrap {
 
   static void MessageCallback(uv_async_t* watcher, int status);
   static void MessageDispatch(void);
+  static void RegisterDebugSignalHandler(void);
+
+  void Enable(bool wait_connect, unsigned short debug_port);
 
 #ifdef __POSIX__
   // FIXME this is positively unsafe with isolates/threads
   static void EnableDebugSignalHandler(int signal);
 #endif // __POSIX__
 
-#ifdef WIN32
-  static int RegisterDebugSignalHandler();
-#endif // WIN32
-
   // Allocate debugger lazily
-  static Handle<Object> GetInstance(void);
+  static Debug* GetInstance(void);
 
   // Allow node.cc starting debugger
-  static void Start(bool wait_connect, unsigned short debug_port);
+  static void SignalBreak(void);
 
   Debug(v8::Isolate* isolate, node::Isolate* node_isolate)
-      : isolate_(isolate),
+      : ObjectWrap(),
+        isolate_(isolate),
         node_isolate_(node_isolate),
-        running(false) {
+        running_(false) {
 
     // Set the callback DebugMessageDispatch which is called from the debug
     // thread.
@@ -88,14 +88,13 @@ class Debug : ObjectWrap {
     // unref it so that we exit the event loop despite it being active.
     uv_unref(node_isolate->GetLoop());
   }
-  ~Debug();
+  ~Debug() {};
 
  protected:
-  void Enable(bool wait_connect, unsigned short debug_port);
 
   v8::Isolate* isolate_;
   node::Isolate* node_isolate_;
-  bool running;
+  bool running_;
 };
 
 }  // namespace node
