@@ -2379,21 +2379,23 @@ void StartThread(node::Isolate* isolate,
   // even when we need it to access it from another (debugger) thread.
   node_isolate = v8::Isolate::GetCurrent();
 
+  Handle<Object> process_l = SetupProcessObject(argc, argv);
+
+  process_l->Set(String::NewSymbol("tid"),
+                 Integer::NewFromUnsigned(isolate->id_));
+
   // If the --debug flag was specified then initialize the debug thread.
+  // by calling process._debugger.start(wait_connect, port)
   if (use_debug_agent) {
-    EnableDebug(debug_wait_connect);
+    Debug::Start(debug_wait_connect, debug_port);
   } else {
+    // Listen for OS signals to start debugger eventually
 #ifdef _WIN32
     Debug::RegisterDebugSignalHandler();
 #else // Posix
     RegisterSignalHandler(SIGUSR1, Debug::EnableDebugSignalHandler);
 #endif // __POSIX__
   }
-
-  Handle<Object> process_l = SetupProcessObject(argc, argv);
-
-  process_l->Set(String::NewSymbol("tid"),
-                 Integer::NewFromUnsigned(isolate->id_));
 
   // FIXME crashes with "CHECK(heap->isolate() == Isolate::Current()) failed"
   //v8_typed_array::AttachBindings(v8::Context::GetCurrent()->Global());

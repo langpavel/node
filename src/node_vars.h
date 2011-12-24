@@ -58,7 +58,6 @@ struct globals {
   int64_t tick_times[RPM_SAMPLES];
   int tick_time_head;
   int uncaught_exception_counter;
-  uv_async_t debug_watcher;
   v8::Persistent<v8::Object> binding_cache;
   v8::Persistent<v8::Array> module_load_list;
   v8::Isolate* node_isolate;
@@ -171,6 +170,10 @@ struct globals {
   // node_signal_watcher.cc
   v8::Persistent<v8::String> callback_symbol;
   v8::Persistent<v8::FunctionTemplate> signal_watcher_constructor_template;
+
+  // node_debugger.cc
+  v8::Persistent<v8::Object> debug_instance;
+  uv_async_t debug_watcher;
 
   // cares_wrap.cc
   ::ares_channel ares_channel;

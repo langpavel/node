@@ -30,6 +30,7 @@
 #include <v8-debug.h>
 
 #define debug_watcher NODE_VAR(debug_watcher)
+#define debug_instance NODE_VAR(debug_instance)
 
 using namespace v8;
 
@@ -37,12 +38,12 @@ namespace node {
 
 class Debug : ObjectWrap {
  public:
-  static void Initialize(Handle<Object> target);
+  static void Initialize();
 
   static Handle<Value> New(const Arguments& args);
   static Handle<Value> Enable(const Arguments& args);
   static Handle<Value> Pause(const Arguments& args);
-  static Handle<Value> DebugProcess(const Arguments& args);
+  static Handle<Value> Attach(const Arguments& args);
 
   static void BreakMessageHandler(const v8::Debug::Message& message) {
     // do nothing with debug messages.
@@ -52,6 +53,7 @@ class Debug : ObjectWrap {
 
   static void MessageCallback(uv_async_t* watcher, int status);
   static void MessageDispatch(void);
+
 #ifdef __POSIX__
   // FIXME this is positively unsafe with isolates/threads
   static void EnableDebugSignalHandler(int signal);
@@ -60,6 +62,12 @@ class Debug : ObjectWrap {
 #ifdef WIN32
   static int RegisterDebugSignalHandler();
 #endif // WIN32
+
+  // Allocate debugger lazily
+  static Handle<Object> GetInstance(void);
+
+  // Allow node.cc starting debugger
+  static void Start(bool wait_connect, unsigned short debug_port);
 
   Debug(v8::Isolate* isolate, node::Isolate* node_isolate)
       : isolate_(isolate),

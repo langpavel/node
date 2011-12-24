@@ -21,6 +21,7 @@
 
 #include <node.h>
 #include <node_debugger.h>
+#include <node_vars.h>
 #include <node_version.h>
 #include <v8.h>
 #include <v8-debug.h>
@@ -28,23 +29,30 @@
 #include <errno.h>
 #include <assert.h>
 
+#define debug_instance NODE_VAR(debug_instance)
+#define process NODE_VAR(process)
+
 #define UNWRAP Debug *d = ObjectWrap::Unwrap<Debug>(args.Holder())
 
 using namespace v8;
 
 namespace node {
 
-void Debug::Initialize(Handle<Object> target) {
+void Debug::Initialize() {
   HandleScope scope;
 
   Local<FunctionTemplate> t = FunctionTemplate::New(Debug::New);
   t->InstanceTemplate()->SetInternalFieldCount(1);
   t->SetClassName(String::NewSymbol("Debugger"));
 
+  NODE_SET_PROTOTYPE_METHOD(t, "enable", Debug::Enable);
   NODE_SET_PROTOTYPE_METHOD(t, "pause", Debug::Pause);
-  NODE_SET_PROTOTYPE_METHOD(t, "debugProcess", Debug::DebugProcess);
+  NODE_SET_PROTOTYPE_METHOD(t, "attach", Debug::Attach);
 
-  target->Set(String::NewSymbol("Debugger"), t->GetFunction());
+  Handle<Value> argv[0];
+  Handle<Object> debug_instance_ = t->GetFunction()->NewInstance(0, argv);
+  process->Set(String::NewSymbol("_debugger"), debug_instance_);
+  debug_instance = Persistent<Object>::New(debug_instance_);
 }
 
 
@@ -135,7 +143,32 @@ void Debug::MessageDispatch(void) {
   uv_async_send(&debug_watcher);
 }
 
-// Platform specific DebugProcess() implementation
+
+void Debug::Start(bool wait_connect, unsigned short debug_port) {
+  Handle<Object> debugger = Debug::GetInstance();
+  Handle<Object> fn  = debugger->Get(String::NewSymbol("enable"))->ToObject();
+  assert(fn->IsFunction());
+
+  Local<Value> argv[2] = {
+    Local<Value>::New(wait_connect ? True() : False()),
+    Local<Value>::New(Number::New(debug_port))
+  };
+
+  fn->CallAsFunction(debugger, 2, argv);
+}
+
+
+Handle<Object> GetInstance(void) {
+  // Lazily initialize debugger and insert correct _debugger
+  // property into `process` variable
+  if (debug_instance.IsEmpty()) {
+    Debug::Initialize();
+  }
+
+  return debug_instance;
+}
+
+// Platform specific Attach() implementation
 
 #ifdef __POSIX__
 // FIXME this is positively unsafe with isolates/threads
@@ -150,7 +183,7 @@ void Debug::EnableDebugSignalHandler(int signal) {
 }
 
 
-Handle<Value> Debug::DebugProcess(const Arguments& args) {
+Handle<Value> Debug::Attach(const Arguments& args) {
   HandleScope scope;
 
   if (args.Length() != 1) {
@@ -236,7 +269,7 @@ static int GetDebugSignalHandlerMappingName(DWORD pid, char* buf, size_t buf_len
 }
 
 
-Handle<Value> Debug::DebugProcess(const Arguments& args) {
+Handle<Value> Debug::Attach(const Arguments& args) {
   HandleScope scope;
   Handle<Value> rv = Undefined();
   DWORD pid;
