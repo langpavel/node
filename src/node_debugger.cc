@@ -141,7 +141,6 @@ void Debug::MessageDispatch(void) {
   // This function is called from V8's debug thread when a debug TCP client
   // has sent a message.
 
-  fprintf(stderr, "dispatch\n");
   // Send a signal to our main thread saying that it should enter V8 to
   // handle the message.
   uv_async_send(&debug_watcher);
