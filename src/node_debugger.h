@@ -53,7 +53,7 @@ class Debug : ObjectWrap {
 
   static void MessageCallback(uv_async_t* watcher, int status);
   static void MessageDispatch(void);
-  static void RegisterDebugSignalHandler(void);
+  static int RegisterDebugSignalHandler(void);
 
   void Enable(bool wait_connect, unsigned short debug_port);
 

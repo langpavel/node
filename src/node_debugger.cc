@@ -141,6 +141,7 @@ void Debug::MessageDispatch(void) {
   // This function is called from V8's debug thread when a debug TCP client
   // has sent a message.
 
+  fprintf(stderr, "dispatch\n");
   // Send a signal to our main thread saying that it should enter V8 to
   // handle the message.
   uv_async_send(&debug_watcher);
@@ -180,9 +181,11 @@ Debug* Debug::GetInstance(void) {
 // Platform specific Attach() implementation
 
 #ifdef __POSIX__
-void Debug::RegisterDebugSignalHandler(void) {
+int Debug::RegisterDebugSignalHandler(void) {
+  if (main_debugger_ != NULL) return -1;
   main_debugger_ = Debug::GetInstance();
   // node.cc will register actual handler
+  return 0;
 }
 
 // FIXME this is positively unsafe with isolates/threads
@@ -214,8 +217,8 @@ Handle<Value> Debug::Attach(const Arguments& args) {
 
 
 #ifdef _WIN32
-void Debug::RegisterDebugSignalHandler(void) {
-  main_debugger_ = Debug::GetInstance();
+int Debug::RegisterDebugSignalHandler(void) {
+  if (main_debugger_ != NULL) return -1;
 
   char mapping_name[32];
   HANDLE mapping_handle;
@@ -249,6 +252,8 @@ void Debug::RegisterDebugSignalHandler(void) {
     CloseHandle(mapping_handle);
     return -1;
   }
+
+  main_debugger_ = Debug::GetInstance();
 
   *handler = EnableDebugThreadProc;
 
