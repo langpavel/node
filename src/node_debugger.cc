@@ -93,16 +93,16 @@ void Debug::Enable(bool wait_connect, unsigned short debug_port) {
   // v8 isolate.
   isolate_->Enter();
 
-  if (wait_connect) {
-    // Set up an empty handler so v8 will not continue until a debugger
-    // attaches. This is the same behavior as Debug::EnableAgent(_,_,true)
-    // except we don't break at the beginning of the script.
-    // see Debugger::StartAgent in debug.cc of v8/src
-    v8::Debug::SetMessageHandler2(node::Debug::BreakMessageHandler);
-  }
-
   // Start the debug thread
   if (debug_port != 0) {
+    if (wait_connect) {
+      // Set up an empty handler so v8 will not continue until a debugger
+      // attaches. This is the same behavior as Debug::EnableAgent(_,_,true)
+      // except we don't break at the beginning of the script.
+      // see Debugger::StartAgent in debug.cc of v8/src
+      v8::Debug::SetMessageHandler2(node::Debug::BreakMessageHandler);
+    }
+
     // and it's associated TCP server on port 5858.
     v8::Debug::EnableAgent("node " NODE_VERSION, debug_port);
 
