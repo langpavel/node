@@ -123,6 +123,12 @@ Stops the server from accepting new connections.
 See [net.Server.close()](net.html#server.close).
 
 
+### server.maxHeaders
+
+Limits maximum incoming headers count, equal to 1000 by default. If set to 0 -
+no limit will be applied.
+
+
 ## http.ServerRequest
 
 This object is created internally by a HTTP server -- not by
