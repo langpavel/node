@@ -18,7 +18,7 @@ def init_node_addon(self):
 @after('apply_bundle')
 @feature('node_addon')
 def node_addon_shlib_ext(self):
-	self.env['shlib_PATTERN'] = "%s.node"
+	self.env['shlib_PATTERN'] = "%s." + "%s.node" % host_arch(self)
 
 def detect(conf):
   join = os.path.join
@@ -57,6 +57,16 @@ def detect(conf):
 
   ## On Mac OSX we need to use mac bundles
   if Options.platform == 'darwin': conf.check_tool('osx')
+
+def host_arch(self):
+  arch = self.env['DEST_CPU']
+
+  return {
+    'arm': 'arm',
+    'x86': 'ia32',
+    'i386': 'ia32',
+    'x86_64': 'x64',
+  }.get(arch, 'ia32')
 
 def get_node_path():
     join = os.path.join
