@@ -115,6 +115,7 @@ static char *eval_string = NULL;
 static int option_end_index = 0;
 static bool use_debug_agent = false;
 static bool debug_wait_connect = false;
+static bool debug_repl_start = false;
 static int debug_port=5858;
 static int max_stack_size = 0;
 
@@ -2192,6 +2193,8 @@ Handle<Object> SetupProcessObject(int argc, char *argv[]) {
   NODE_SET_METHOD(process, "_debugProcess", DebugProcess);
   NODE_SET_METHOD(process, "_debugPause", DebugPause);
   NODE_SET_METHOD(process, "_debugEnd", DebugEnd);
+  process->Set(String::NewSymbol("_debugReplStart"),
+               debug_repl_start ? True() : False());
 
   NODE_SET_METHOD(process, "hrtime", Hrtime);
 
@@ -2270,6 +2273,9 @@ static void ParseDebugOpt(const char* arg) {
   use_debug_agent = true;
   if (!strcmp (arg, "--debug-brk")) {
     debug_wait_connect = true;
+    return;
+  } else if (!strcmp (arg, "--debug-repl-start")) {
+    debug_repl_start = true;
     return;
   } else if (!strcmp(arg, "--debug")) {
     return;
