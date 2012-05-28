@@ -77,6 +77,7 @@ TEST_DECLARE   (callback_stack)
 TEST_DECLARE   (error_message)
 TEST_DECLARE   (timer)
 TEST_DECLARE   (timer_again)
+TEST_DECLARE   (timer_start_twice)
 TEST_DECLARE   (idle_starvation)
 TEST_DECLARE   (loop_handles)
 TEST_DECLARE   (get_loadavg)
@@ -122,6 +123,7 @@ TEST_DECLARE   (spawn_and_kill_with_std)
 TEST_DECLARE   (spawn_and_ping)
 TEST_DECLARE   (spawn_setuid_fails)
 TEST_DECLARE   (spawn_setgid_fails)
+TEST_DECLARE   (spawn_stdout_to_file)
 TEST_DECLARE   (kill)
 TEST_DECLARE   (fs_file_noent)
 TEST_DECLARE   (fs_file_nametoolong)
@@ -266,6 +268,7 @@ TASK_LIST_START
 
   TEST_ENTRY  (timer)
   TEST_ENTRY  (timer_again)
+  TEST_ENTRY  (timer_start_twice)
 
   TEST_ENTRY  (idle_starvation)
 
@@ -332,6 +335,7 @@ TASK_LIST_START
   TEST_ENTRY  (spawn_and_ping)
   TEST_ENTRY  (spawn_setuid_fails)
   TEST_ENTRY  (spawn_setgid_fails)
+  TEST_ENTRY  (spawn_stdout_to_file)
   TEST_ENTRY  (kill)
 #ifdef _WIN32
   TEST_ENTRY  (spawn_detect_pipe_name_collisions_on_windows)
