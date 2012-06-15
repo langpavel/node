@@ -146,7 +146,8 @@ automatically set as a listener for the [secureConnection][] event.  The
     sessions. Possible properties: `size` (amount of sessions that can be stored
     within storage, default: `10000`), `timeout` (liveness time for each session
     in milliseconds, default: `50000`).
-    Default value: `true`, use `false` to disable session storage.
+    NOTE: To disable session storage add `sessionStorage: false` to the server's
+    options.
 
 Here is a simple example echo server:
 
