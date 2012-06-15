@@ -154,13 +154,10 @@ class Connection : ObjectWrap {
   static v8::Handle<v8::Value> Start(const v8::Arguments& args);
   static v8::Handle<v8::Value> Close(const v8::Arguments& args);
 
-  // ClearOut worker functions
+  // Worker functions
+  static void StartRequestCallback(uv_work_t* work);
   static void ReadRequestCallback(uv_work_t* work);
-
-  // ClearIn worker functions
   static void WriteRequestCallback(uv_work_t* work);
-
-  // Common worker functions
   static void RequestDone(uv_work_t* work);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
@@ -229,8 +226,6 @@ class Connection : ObjectWrap {
   BIO *bio_write_;
   SSL *ssl_;
 
-  ConnectionRequest read_req_;
-  ConnectionRequest write_req_;
   uv_mutex_t request_mutex_;
 
   bool is_server_; /* coverity[member_decl] */

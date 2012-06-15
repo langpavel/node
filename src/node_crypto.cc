@@ -1162,17 +1162,20 @@ Handle<Value> Connection::ClearOut(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  ss->read_req_.message = NULL;
-  ss->read_req_.set_shutdown = false;
-  ss->read_req_.bytes = -1;
-  ss->read_req_.callback = Persistent<Function>::New(callback);
+  ConnectionRequest* req = new ConnectionRequest();
 
-  ss->read_req_.buffer = buffer_data + off;
-  ss->read_req_.len = len;
+  req->c = ss;
+  req->message = NULL;
+  req->set_shutdown = false;
+  req->bytes = -1;
+  req->callback = Persistent<Function>::New(callback);
+
+  req->buffer = buffer_data + off;
+  req->len = len;
 
   ss->Ref();
   uv_queue_work(uv_default_loop(),
-                &ss->read_req_.work,
+                &req->work,
                 ReadRequestCallback,
                 RequestDone);
 
@@ -1182,7 +1185,7 @@ Handle<Value> Connection::ClearOut(const Arguments& args) {
 
 void Connection::ReadRequestCallback(uv_work_t* work) {
   ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = container_of(req, Connection, read_req_);
+  Connection* c = req->c;
 
   // Do not allow simultaneous reads for one connection
   uv_mutex_lock(&c->request_mutex_);
@@ -1196,22 +1199,23 @@ void Connection::ReadRequestCallback(uv_work_t* work) {
       req->bytes = SSL_connect(c->ssl_);
     }
 
-    if (req->bytes < 0) return;
+    if (req->bytes < 0) goto done;
   }
 
   req->message = "SSL_read:ClearOut";
   req->set_shutdown = true;
   req->bytes = SSL_read(c->ssl_, req->buffer, req->len);
 
+done:
   uv_mutex_unlock(&c->request_mutex_);
 }
 
 
 void Connection::RequestDone(uv_work_t* work) {
   ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = container_of(req, Connection, read_req_);
+  Connection* c = req->c;
 
-  c->HandleSSLError(req->message, req->bytes);
+  if (req->message != NULL) c->HandleSSLError(req->message, req->bytes);
   if (req->set_shutdown) c->SetShutdownFlags();
 
   Handle<Value> argv[2] = { Null(), Number::New(req->bytes) };
@@ -1334,17 +1338,20 @@ Handle<Value> Connection::ClearIn(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  ss->write_req_.message = NULL;
-  ss->write_req_.set_shutdown = false;
-  ss->write_req_.bytes = -1;
-  ss->write_req_.callback = Persistent<Function>::New(callback);
+  ConnectionRequest* req = new ConnectionRequest();
 
-  ss->write_req_.buffer = buffer_data + off;
-  ss->write_req_.len = len;
+  req->c = ss;
+  req->message = NULL;
+  req->set_shutdown = false;
+  req->bytes = -1;
+  req->callback = Persistent<Function>::New(callback);
+
+  req->buffer = buffer_data + off;
+  req->len = len;
 
   ss->Ref();
   uv_queue_work(uv_default_loop(),
-                &ss->write_req_.work,
+                &req->work,
                 WriteRequestCallback,
                 RequestDone);
   return Null();
@@ -1353,7 +1360,7 @@ Handle<Value> Connection::ClearIn(const Arguments& args) {
 
 void Connection::WriteRequestCallback(uv_work_t* work) {
   ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = container_of(req, Connection, read_req_);
+  Connection* c = req->c;
 
   // Do not allow simultaneous reads for one connection
   uv_mutex_lock(&c->request_mutex_);
@@ -1367,13 +1374,14 @@ void Connection::WriteRequestCallback(uv_work_t* work) {
       req->bytes = SSL_connect(c->ssl_);
     }
 
-    if (req->bytes < 0) return;
+    if (req->bytes < 0) goto done;
   }
 
   req->message = "SSL_write:ClearIn";
   req->set_shutdown = true;
   req->bytes = SSL_write(c->ssl_, req->buffer, req->len);
 
+done:
   uv_mutex_unlock(&c->request_mutex_);
 }
 
@@ -1568,22 +1576,46 @@ Handle<Value> Connection::IsSessionReused(const Arguments& args) {
 Handle<Value> Connection::Start(const Arguments& args) {
   HandleScope scope;
 
-  Connection *ss = Connection::Unwrap(args);
-
-  if (!SSL_is_init_finished(ss->ssl_)) {
-    int rv;
-    if (ss->is_server_) {
-      rv = SSL_accept(ss->ssl_);
-      ss->HandleSSLError("SSL_accept:Start", rv);
-    } else {
-      rv = SSL_connect(ss->ssl_);
-      ss->HandleSSLError("SSL_connect:Start", rv);
-    }
-
-    return scope.Close(Integer::New(rv));
+  if (args.Length() < 1 || !args[0]->IsFunction()) {
+    return ThrowException(Exception::Error(String::New(
+           "First argument should be a function")));
   }
 
-  return scope.Close(Integer::New(0));
+  Connection *ss = Connection::Unwrap(args);
+  Local<Function> callback = args[0].As<Function>();
+
+  ConnectionRequest* req = new ConnectionRequest();
+  req->c = ss;
+  req->callback = Persistent<Function>::New(callback);
+  req->message = NULL;
+
+  uv_queue_work(uv_default_loop(),
+                &req->work,
+                StartRequestCallback,
+                RequestDone);
+
+  return Null();
+}
+
+
+void Connection::StartRequestCallback(uv_work_t* work) {
+  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
+  Connection* c = req->c;
+
+  // Do not allow simultaneous reads for one connection
+  uv_mutex_lock(&c->request_mutex_);
+
+  if (!SSL_is_init_finished(c->ssl_)) {
+    if (c->is_server_) {
+      req->message = "SSL_accept:Start";
+      req->bytes = SSL_accept(c->ssl_);
+    } else {
+      req->message = "SSL_connect:Start";
+      req->bytes = SSL_connect(c->ssl_);
+    }
+  }
+
+  uv_mutex_unlock(&c->request_mutex_);
 }
 
 
