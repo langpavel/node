@@ -102,6 +102,25 @@ class SecureContext : ObjectWrap {
 
 class Connection : ObjectWrap {
  public:
+  struct ConnectionRequest {
+    Connection* c;
+
+    // Buffer to read into
+    char* buffer;
+    size_t len;
+
+    // Data for callback
+    int bytes;
+    v8::Persistent<v8::Function> callback;
+
+    // Debugging info
+    const char* message;
+    bool set_shutdown;
+
+    uv_work_t work;
+  };
+
+
   static void Initialize(v8::Handle<v8::Object> target);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
@@ -134,6 +153,15 @@ class Connection : ObjectWrap {
   static v8::Handle<v8::Value> ReceivedShutdown(const v8::Arguments& args);
   static v8::Handle<v8::Value> Start(const v8::Arguments& args);
   static v8::Handle<v8::Value> Close(const v8::Arguments& args);
+
+  // ClearOut worker functions
+  static void ReadRequestCallback(uv_work_t* work);
+
+  // ClearIn worker functions
+  static void WriteRequestCallback(uv_work_t* work);
+
+  // Common worker functions
+  static void RequestDone(uv_work_t* work);
 
 #ifdef OPENSSL_NPN_NEGOTIATED
   // NPN
@@ -171,6 +199,7 @@ class Connection : ObjectWrap {
   Connection() : ObjectWrap() {
     bio_read_ = bio_write_ = NULL;
     ssl_ = NULL;
+    uv_mutex_init(&request_mutex_);
   }
 
   ~Connection() {
@@ -189,6 +218,8 @@ class Connection : ObjectWrap {
    if (!sniContext_.IsEmpty()) sniContext_.Dispose();
    if (!servername_.IsEmpty()) servername_.Dispose();
 #endif
+
+    uv_mutex_destroy(&request_mutex_);
   }
 
  private:
@@ -197,6 +228,10 @@ class Connection : ObjectWrap {
   BIO *bio_read_;
   BIO *bio_write_;
   SSL *ssl_;
+
+  ConnectionRequest read_req_;
+  ConnectionRequest write_req_;
+  uv_mutex_t request_mutex_;
 
   bool is_server_; /* coverity[member_decl] */
 };

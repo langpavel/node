@@ -1162,29 +1162,66 @@ Handle<Value> Connection::ClearOut(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  int bytes_read = -1;
-  if (!SSL_is_init_finished(ss->ssl_)) {
-    if (ss->is_server_) {
-      bytes_read = SSL_accept(ss->ssl_);
-      ss->HandleSSLError("SSL_accept:ClearOut", bytes_read);
+  ss->read_req_.message = NULL;
+  ss->read_req_.set_shutdown = false;
+  ss->read_req_.bytes = -1;
+  ss->read_req_.callback = Persistent<Function>::New(callback);
+
+  ss->read_req_.buffer = buffer_data + off;
+  ss->read_req_.len = len;
+
+  ss->Ref();
+  uv_queue_work(uv_default_loop(),
+                &ss->read_req_.work,
+                ReadRequestCallback,
+                RequestDone);
+
+  return Null();
+}
+
+
+void Connection::ReadRequestCallback(uv_work_t* work) {
+  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
+  Connection* c = container_of(req, Connection, read_req_);
+
+  // Do not allow simultaneous reads for one connection
+  uv_mutex_lock(&c->request_mutex_);
+
+  if (!SSL_is_init_finished(c->ssl_)) {
+    if (c->is_server_) {
+      req->message = "SSL_accept:ClearOut";
+      req->bytes = SSL_accept(c->ssl_);
     } else {
-      bytes_read = SSL_connect(ss->ssl_);
-      ss->HandleSSLError("SSL_connect:ClearOut", bytes_read);
+      req->message = "SSL_connect:ClearOut";
+      req->bytes = SSL_connect(c->ssl_);
     }
 
-    if (bytes_read < 0) goto done;
+    if (req->bytes < 0) return;
   }
 
-  bytes_read = SSL_read(ss->ssl_, buffer_data + off, len);
-  ss->HandleSSLError("SSL_read:ClearOut", bytes_read);
-  ss->SetShutdownFlags();
+  req->message = "SSL_read:ClearOut";
+  req->set_shutdown = true;
+  req->bytes = SSL_read(c->ssl_, req->buffer, req->len);
 
-done:
-  Handle<Value> argv[2] = { Null(), Number::New(bytes_read) };
+  uv_mutex_unlock(&c->request_mutex_);
+}
+
+
+void Connection::RequestDone(uv_work_t* work) {
+  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
+  Connection* c = container_of(req, Connection, read_req_);
+
+  c->HandleSSLError(req->message, req->bytes);
+  if (req->set_shutdown) c->SetShutdownFlags();
+
+  Handle<Value> argv[2] = { Null(), Number::New(req->bytes) };
   MakeCallback(Context::GetCurrent()->Global(),
-               callback,
+               req->callback,
                ARRAY_SIZE(argv), argv);
-  return Null();
+
+  req->callback.Dispose();
+  req->callback.Clear();
+  c->Unref();
 }
 
 
@@ -1297,32 +1334,47 @@ Handle<Value> Connection::ClearIn(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  int bytes_written;
+  ss->write_req_.message = NULL;
+  ss->write_req_.set_shutdown = false;
+  ss->write_req_.bytes = -1;
+  ss->write_req_.callback = Persistent<Function>::New(callback);
 
-  if (!SSL_is_init_finished(ss->ssl_)) {
-    if (ss->is_server_) {
-      bytes_written = SSL_accept(ss->ssl_);
-      ss->HandleSSLError("SSL_accept:ClearIn", bytes_written);
+  ss->write_req_.buffer = buffer_data + off;
+  ss->write_req_.len = len;
+
+  ss->Ref();
+  uv_queue_work(uv_default_loop(),
+                &ss->write_req_.work,
+                WriteRequestCallback,
+                RequestDone);
+  return Null();
+}
+
+
+void Connection::WriteRequestCallback(uv_work_t* work) {
+  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
+  Connection* c = container_of(req, Connection, read_req_);
+
+  // Do not allow simultaneous reads for one connection
+  uv_mutex_lock(&c->request_mutex_);
+
+  if (!SSL_is_init_finished(c->ssl_)) {
+    if (c->is_server_) {
+      req->message = "SSL_accept:ClearIn";
+      req->bytes = SSL_accept(c->ssl_);
     } else {
-      bytes_written = SSL_connect(ss->ssl_);
-      ss->HandleSSLError("SSL_connect:ClearIn", bytes_written);
+      req->message = "SSL_connect:ClearIn";
+      req->bytes = SSL_connect(c->ssl_);
     }
 
-    if (bytes_written < 0) goto done;
+    if (req->bytes < 0) return;
   }
 
-  bytes_written = SSL_write(ss->ssl_, buffer_data + off, len);
+  req->message = "SSL_write:ClearIn";
+  req->set_shutdown = true;
+  req->bytes = SSL_write(c->ssl_, req->buffer, req->len);
 
-  ss->HandleSSLError("SSL_write:ClearIn", bytes_written);
-  ss->SetShutdownFlags();
-
-done:
-  Handle<Value> argv[2] = { Null(), Number::New(bytes_written) };
-  MakeCallback(Context::GetCurrent()->Global(),
-               callback,
-               ARRAY_SIZE(argv), argv);
-
-  return Null();
+  uv_mutex_unlock(&c->request_mutex_);
 }
 
 
