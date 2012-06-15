@@ -1078,14 +1078,19 @@ Handle<Value> Connection::EncIn(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
-  if (args.Length() < 3) {
+  if (args.Length() < 4) {
     return ThrowException(Exception::TypeError(
-          String::New("Takes 3 parameters")));
+          String::New("Takes 4 parameters")));
   }
 
   if (!Buffer::HasInstance(args[0])) {
     return ThrowException(Exception::TypeError(
           String::New("Second argument should be a buffer")));
+  }
+
+  if (!args[3]->IsFunction()) {
+    return ThrowException(Exception::TypeError(
+          String::New("Fourth argument should be a function")));
   }
 
   Local<Object> buffer_obj = args[0]->ToObject();
@@ -1104,11 +1109,18 @@ Handle<Value> Connection::EncIn(const Arguments& args) {
           String::New("off + len > buffer.length")));
   }
 
+  Local<Function> callback = args[3].As<Function>();
+
   int bytes_written = BIO_write(ss->bio_read_, buffer_data + off, len);
   ss->HandleBIOError(ss->bio_read_, "BIO_write", bytes_written);
   ss->SetShutdownFlags();
 
-  return scope.Close(Integer::New(bytes_written));
+  Handle<Value> argv[2] = { Null(), Number::New(bytes_written) };
+  MakeCallback(Context::GetCurrent()->Global(),
+               callback,
+               ARRAY_SIZE(argv), argv);
+
+  return Null();
 }
 
 
@@ -1211,6 +1223,11 @@ Handle<Value> Connection::EncOut(const Arguments& args) {
           String::New("Second argument should be a buffer")));
   }
 
+  if (!args[3]->IsFunction()) {
+    return ThrowException(Exception::TypeError(
+          String::New("Fourth argument should be a function")));
+  }
+
   Local<Object> buffer_obj = args[0]->ToObject();
   char *buffer_data = Buffer::Data(buffer_obj);
   size_t buffer_length = Buffer::Length(buffer_obj);
@@ -1247,14 +1264,19 @@ Handle<Value> Connection::ClearIn(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
-  if (args.Length() < 3) {
+  if (args.Length() < 4) {
     return ThrowException(Exception::TypeError(
-          String::New("Takes 3 parameters")));
+          String::New("Takes 4 parameters")));
   }
 
   if (!Buffer::HasInstance(args[0])) {
     return ThrowException(Exception::TypeError(
           String::New("Second argument should be a buffer")));
+  }
+
+  if (!args[3]->IsFunction()) {
+    return ThrowException(Exception::TypeError(
+          String::New("Fourth argument should be a function")));
   }
 
   Local<Object> buffer_obj = args[0]->ToObject();
@@ -1273,25 +1295,34 @@ Handle<Value> Connection::ClearIn(const Arguments& args) {
           String::New("off + len > buffer.length")));
   }
 
+  Local<Function> callback = args[3].As<Function>();
+
+  int bytes_written;
+
   if (!SSL_is_init_finished(ss->ssl_)) {
-    int rv;
     if (ss->is_server_) {
-      rv = SSL_accept(ss->ssl_);
-      ss->HandleSSLError("SSL_accept:ClearIn", rv);
+      bytes_written = SSL_accept(ss->ssl_);
+      ss->HandleSSLError("SSL_accept:ClearIn", bytes_written);
     } else {
-      rv = SSL_connect(ss->ssl_);
-      ss->HandleSSLError("SSL_connect:ClearIn", rv);
+      bytes_written = SSL_connect(ss->ssl_);
+      ss->HandleSSLError("SSL_connect:ClearIn", bytes_written);
     }
 
-    if (rv < 0) return scope.Close(Integer::New(rv));
+    if (bytes_written < 0) goto done;
   }
 
-  int bytes_written = SSL_write(ss->ssl_, buffer_data + off, len);
+  bytes_written = SSL_write(ss->ssl_, buffer_data + off, len);
 
   ss->HandleSSLError("SSL_write:ClearIn", bytes_written);
   ss->SetShutdownFlags();
 
-  return scope.Close(Integer::New(bytes_written));
+done:
+  Handle<Value> argv[2] = { Null(), Number::New(bytes_written) };
+  MakeCallback(Context::GetCurrent()->Global(),
+               callback,
+               ARRAY_SIZE(argv), argv);
+
+  return Null();
 }
 
 
