@@ -1117,14 +1117,19 @@ Handle<Value> Connection::ClearOut(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
-  if (args.Length() < 3) {
+  if (args.Length() < 4) {
     return ThrowException(Exception::TypeError(
-          String::New("Takes 3 parameters")));
+          String::New("Takes 4 parameters")));
   }
 
   if (!Buffer::HasInstance(args[0])) {
     return ThrowException(Exception::TypeError(
           String::New("Second argument should be a buffer")));
+  }
+
+  if (!args[3]->IsFunction()) {
+    return ThrowException(Exception::TypeError(
+          String::New("Fourth argument should be a function")));
   }
 
   Local<Object> buffer_obj = args[0]->ToObject();
@@ -1143,25 +1148,31 @@ Handle<Value> Connection::ClearOut(const Arguments& args) {
           String::New("off + len > buffer.length")));
   }
 
-  if (!SSL_is_init_finished(ss->ssl_)) {
-    int rv;
+  Local<Function> callback = args[3].As<Function>();
 
+  int bytes_read = -1;
+  if (!SSL_is_init_finished(ss->ssl_)) {
     if (ss->is_server_) {
-      rv = SSL_accept(ss->ssl_);
-      ss->HandleSSLError("SSL_accept:ClearOut", rv);
+      bytes_read = SSL_accept(ss->ssl_);
+      ss->HandleSSLError("SSL_accept:ClearOut", bytes_read);
     } else {
-      rv = SSL_connect(ss->ssl_);
-      ss->HandleSSLError("SSL_connect:ClearOut", rv);
+      bytes_read = SSL_connect(ss->ssl_);
+      ss->HandleSSLError("SSL_connect:ClearOut", bytes_read);
     }
 
-    if (rv < 0) return scope.Close(Integer::New(rv));
+    if (bytes_read < 0) goto done;
   }
 
-  int bytes_read = SSL_read(ss->ssl_, buffer_data + off, len);
+  bytes_read = SSL_read(ss->ssl_, buffer_data + off, len);
   ss->HandleSSLError("SSL_read:ClearOut", bytes_read);
   ss->SetShutdownFlags();
 
-  return scope.Close(Integer::New(bytes_read));
+done:
+  Handle<Value> argv[2] = { Null(), Number::New(bytes_read) };
+  MakeCallback(Context::GetCurrent()->Global(),
+               callback,
+               ARRAY_SIZE(argv), argv);
+  return Null();
 }
 
 
@@ -1190,9 +1201,9 @@ Handle<Value> Connection::EncOut(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
-  if (args.Length() < 3) {
+  if (args.Length() < 4) {
     return ThrowException(Exception::TypeError(
-          String::New("Takes 3 parameters")));
+          String::New("Takes 4 parameters")));
   }
 
   if (!Buffer::HasInstance(args[0])) {
@@ -1216,12 +1227,18 @@ Handle<Value> Connection::EncOut(const Arguments& args) {
           String::New("off + len > buffer.length")));
   }
 
+  Local<Function> callback = args[3].As<Function>();
+
   int bytes_read = BIO_read(ss->bio_write_, buffer_data + off, len);
 
   ss->HandleBIOError(ss->bio_write_, "BIO_read:EncOut", bytes_read);
   ss->SetShutdownFlags();
 
-  return scope.Close(Integer::New(bytes_read));
+  Handle<Value> argv[2] = { Null(), Number::New(bytes_read) };
+  MakeCallback(Context::GetCurrent()->Global(),
+               callback,
+               ARRAY_SIZE(argv), argv);
+  return Null();
 }
 
 
