@@ -102,22 +102,49 @@ class SecureContext : ObjectWrap {
 
 class Connection : ObjectWrap {
  public:
-  struct ConnectionRequest {
-    Connection* c;
+  class ConnectionRequest {
+   public:
+    enum RequestType {
+      kStart,
+      kEncIn,
+      kEncOut,
+      kClearIn,
+      kClearOut
+    };
+
+    ConnectionRequest(Connection* c, RequestType type) : c_(c),
+                                                         type_(type),
+                                                         buffer_(NULL),
+                                                         len_(0),
+                                                         bytes_(-1),
+                                                         message_(NULL),
+                                                         set_shutdown_(false) {
+    }
+
+    inline void Queue() {
+      c_->Ref();
+      uv_queue_work(uv_default_loop(),
+                    &work_,
+                    Connection::RequestCallback,
+                    Connection::RequestDone);
+    }
+
+    Connection* c_;
+    RequestType type_;
 
     // Buffer to read into
-    char* buffer;
-    size_t len;
+    char* buffer_;
+    size_t len_;
 
     // Data for callback
-    int bytes;
-    v8::Persistent<v8::Function> callback;
+    int bytes_;
+    v8::Persistent<v8::Function> callback_;
 
     // Debugging info
-    const char* message;
-    bool set_shutdown;
+    const char* message_;
+    bool set_shutdown_;
 
-    uv_work_t work;
+    uv_work_t work_;
   };
 
 
@@ -155,9 +182,7 @@ class Connection : ObjectWrap {
   static v8::Handle<v8::Value> Close(const v8::Arguments& args);
 
   // Worker functions
-  static void StartRequestCallback(uv_work_t* work);
-  static void ReadRequestCallback(uv_work_t* work);
-  static void WriteRequestCallback(uv_work_t* work);
+  static void RequestCallback(uv_work_t* work);
   static void RequestDone(uv_work_t* work);
 
 #ifdef OPENSSL_NPN_NEGOTIATED

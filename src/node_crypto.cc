@@ -1111,14 +1111,14 @@ Handle<Value> Connection::EncIn(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  int bytes_written = BIO_write(ss->bio_read_, buffer_data + off, len);
-  ss->HandleBIOError(ss->bio_read_, "BIO_write", bytes_written);
-  ss->SetShutdownFlags();
+  ConnectionRequest* req = new ConnectionRequest(ss, ConnectionRequest::kEncIn);
 
-  Handle<Value> argv[2] = { Null(), Number::New(bytes_written) };
-  MakeCallback(Context::GetCurrent()->Global(),
-               callback,
-               ARRAY_SIZE(argv), argv);
+  req->callback_ = Persistent<Function>::New(callback);
+
+  req->buffer_ = buffer_data + off;
+  req->len_ = len;
+
+  req->Queue();
 
   return Null();
 }
@@ -1162,49 +1162,70 @@ Handle<Value> Connection::ClearOut(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  ConnectionRequest* req = new ConnectionRequest();
+  ConnectionRequest* req = new ConnectionRequest(ss,
+                                                 ConnectionRequest::kClearOut);
 
-  req->c = ss;
-  req->message = NULL;
-  req->set_shutdown = false;
-  req->bytes = -1;
-  req->callback = Persistent<Function>::New(callback);
+  req->callback_ = Persistent<Function>::New(callback);
 
-  req->buffer = buffer_data + off;
-  req->len = len;
+  req->buffer_ = buffer_data + off;
+  req->len_ = len;
 
-  ss->Ref();
-  uv_queue_work(uv_default_loop(),
-                &req->work,
-                ReadRequestCallback,
-                RequestDone);
+  req->Queue();
 
   return Null();
 }
 
 
-void Connection::ReadRequestCallback(uv_work_t* work) {
-  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = req->c;
+void Connection::RequestCallback(uv_work_t* work) {
+  ConnectionRequest* req = container_of(work, ConnectionRequest, work_);
+  Connection* c = req->c_;
 
   // Do not allow simultaneous reads for one connection
   uv_mutex_lock(&c->request_mutex_);
 
-  if (!SSL_is_init_finished(c->ssl_)) {
-    if (c->is_server_) {
-      req->message = "SSL_accept:ClearOut";
-      req->bytes = SSL_accept(c->ssl_);
-    } else {
-      req->message = "SSL_connect:ClearOut";
-      req->bytes = SSL_connect(c->ssl_);
-    }
+  switch (req->type_) {
+   case ConnectionRequest::kStart:
+   case ConnectionRequest::kClearOut:
+   case ConnectionRequest::kClearIn:
+    if (!SSL_is_init_finished(c->ssl_)) {
+      if (c->is_server_) {
+        req->message_ = "SSL_accept";
+        req->bytes_ = SSL_accept(c->ssl_);
+      } else {
+        req->message_ = "SSL_connect";
+        req->bytes_ = SSL_connect(c->ssl_);
+      }
 
-    if (req->bytes < 0) goto done;
+      if (req->bytes_ < 0) goto done;
+    }
+    break;
+   default:
+    break;
   }
 
-  req->message = "SSL_read:ClearOut";
-  req->set_shutdown = true;
-  req->bytes = SSL_read(c->ssl_, req->buffer, req->len);
+  if (req->type_ == ConnectionRequest::kStart) goto done;
+
+  req->set_shutdown_ = true;
+
+  switch (req->type_) {
+   case ConnectionRequest::kClearOut:
+    req->message_ = "SSL_read:ClearOut";
+    req->bytes_ = SSL_read(c->ssl_, req->buffer_, req->len_);
+    break;
+   case ConnectionRequest::kClearIn:
+    req->message_ = "SSL_write:ClearIn";
+    req->bytes_ = SSL_write(c->ssl_, req->buffer_, req->len_);
+    break;
+   case ConnectionRequest::kEncIn:
+    req->message_ = "BIO_write:EncIn";
+    req->bytes_ = BIO_write(c->bio_read_, req->buffer_, req->len_);
+    break;
+   case ConnectionRequest::kEncOut:
+    req->message_ = "BIO_read:EncOut";
+    req->bytes_ = BIO_read(c->bio_write_, req->buffer_, req->len_);
+   default:
+    break;
+  }
 
 done:
   uv_mutex_unlock(&c->request_mutex_);
@@ -1212,20 +1233,22 @@ done:
 
 
 void Connection::RequestDone(uv_work_t* work) {
-  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = req->c;
+  ConnectionRequest* req = container_of(work, ConnectionRequest, work_);
+  Connection* c = req->c_;
 
-  if (req->message != NULL) c->HandleSSLError(req->message, req->bytes);
-  if (req->set_shutdown) c->SetShutdownFlags();
+  if (req->message_ != NULL) c->HandleSSLError(req->message_, req->bytes_);
+  if (req->set_shutdown_) c->SetShutdownFlags();
 
-  Handle<Value> argv[2] = { Null(), Number::New(req->bytes) };
+  Handle<Value> argv[2] = { Null(), Number::New(req->bytes_) };
   MakeCallback(Context::GetCurrent()->Global(),
-               req->callback,
+               req->callback_,
                ARRAY_SIZE(argv), argv);
 
-  req->callback.Dispose();
-  req->callback.Clear();
+  req->callback_.Dispose();
+  req->callback_.Clear();
   c->Unref();
+
+  delete req;
 }
 
 
@@ -1287,15 +1310,16 @@ Handle<Value> Connection::EncOut(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  int bytes_read = BIO_read(ss->bio_write_, buffer_data + off, len);
+  ConnectionRequest* req = new ConnectionRequest(ss,
+                                                 ConnectionRequest::kEncOut);
 
-  ss->HandleBIOError(ss->bio_write_, "BIO_read:EncOut", bytes_read);
-  ss->SetShutdownFlags();
+  req->callback_ = Persistent<Function>::New(callback);
 
-  Handle<Value> argv[2] = { Null(), Number::New(bytes_read) };
-  MakeCallback(Context::GetCurrent()->Global(),
-               callback,
-               ARRAY_SIZE(argv), argv);
+  req->buffer_ = buffer_data + off;
+  req->len_ = len;
+
+  req->Queue();
+
   return Null();
 }
 
@@ -1338,51 +1362,16 @@ Handle<Value> Connection::ClearIn(const Arguments& args) {
 
   Local<Function> callback = args[3].As<Function>();
 
-  ConnectionRequest* req = new ConnectionRequest();
+  ConnectionRequest* req = new ConnectionRequest(ss,
+                                                 ConnectionRequest::kClearIn);
 
-  req->c = ss;
-  req->message = NULL;
-  req->set_shutdown = false;
-  req->bytes = -1;
-  req->callback = Persistent<Function>::New(callback);
+  req->buffer_ = buffer_data + off;
+  req->len_ = len;
 
-  req->buffer = buffer_data + off;
-  req->len = len;
+  req->callback_ = Persistent<Function>::New(callback);
+  req->Queue();
 
-  ss->Ref();
-  uv_queue_work(uv_default_loop(),
-                &req->work,
-                WriteRequestCallback,
-                RequestDone);
   return Null();
-}
-
-
-void Connection::WriteRequestCallback(uv_work_t* work) {
-  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = req->c;
-
-  // Do not allow simultaneous reads for one connection
-  uv_mutex_lock(&c->request_mutex_);
-
-  if (!SSL_is_init_finished(c->ssl_)) {
-    if (c->is_server_) {
-      req->message = "SSL_accept:ClearIn";
-      req->bytes = SSL_accept(c->ssl_);
-    } else {
-      req->message = "SSL_connect:ClearIn";
-      req->bytes = SSL_connect(c->ssl_);
-    }
-
-    if (req->bytes < 0) goto done;
-  }
-
-  req->message = "SSL_write:ClearIn";
-  req->set_shutdown = true;
-  req->bytes = SSL_write(c->ssl_, req->buffer, req->len);
-
-done:
-  uv_mutex_unlock(&c->request_mutex_);
 }
 
 
@@ -1584,38 +1573,12 @@ Handle<Value> Connection::Start(const Arguments& args) {
   Connection *ss = Connection::Unwrap(args);
   Local<Function> callback = args[0].As<Function>();
 
-  ConnectionRequest* req = new ConnectionRequest();
-  req->c = ss;
-  req->callback = Persistent<Function>::New(callback);
-  req->message = NULL;
+  ConnectionRequest* req = new ConnectionRequest(ss, ConnectionRequest::kStart);
 
-  uv_queue_work(uv_default_loop(),
-                &req->work,
-                StartRequestCallback,
-                RequestDone);
+  req->callback_ = Persistent<Function>::New(callback);
+  req->Queue();
 
   return Null();
-}
-
-
-void Connection::StartRequestCallback(uv_work_t* work) {
-  ConnectionRequest* req = container_of(work, ConnectionRequest, work);
-  Connection* c = req->c;
-
-  // Do not allow simultaneous reads for one connection
-  uv_mutex_lock(&c->request_mutex_);
-
-  if (!SSL_is_init_finished(c->ssl_)) {
-    if (c->is_server_) {
-      req->message = "SSL_accept:Start";
-      req->bytes = SSL_accept(c->ssl_);
-    } else {
-      req->message = "SSL_connect:Start";
-      req->bytes = SSL_connect(c->ssl_);
-    }
-  }
-
-  uv_mutex_unlock(&c->request_mutex_);
 }
 
 
