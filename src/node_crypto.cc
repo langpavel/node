@@ -853,6 +853,8 @@ int Connection::AdvertiseNextProtoCallback_(SSL *s,
                                             const unsigned char **data,
                                             unsigned int *len,
                                             void *arg) {
+  // XXX: NPN Callback couldn't work with async handshake
+  return SSL_TLSEXT_ERR_OK;
 
   Connection *p = static_cast<Connection*>(SSL_get_app_data(s));
 
@@ -872,6 +874,9 @@ int Connection::SelectNextProtoCallback_(SSL *s,
                              unsigned char **out, unsigned char *outlen,
                              const unsigned char* in,
                              unsigned int inlen, void *arg) {
+  // XXX: NPN Callback couldn't work with async handshake
+  return SSL_TLSEXT_ERR_OK;
+
   Connection *p = static_cast<Connection*> SSL_get_app_data(s);
 
   // Release old protocol handler if present
@@ -919,6 +924,8 @@ int Connection::SelectNextProtoCallback_(SSL *s,
 
 #ifdef SSL_CTRL_SET_TLSEXT_SERVERNAME_CB
 int Connection::SelectSNIContextCallback_(SSL *s, int *ad, void* arg) {
+  // XXX: SNI Callback couldn't work with async handshake
+  return SSL_TLSEXT_ERR_OK;
   HandleScope scope;
 
   Connection *p = static_cast<Connection*> SSL_get_app_data(s);
@@ -1054,17 +1061,28 @@ void Connection::SSLInfoCallback(const SSL *ssl_, int where, int ret) {
   // Be compatible with older versions of OpenSSL. SSL_get_app_data() wants
   // a non-const SSL* in OpenSSL <= 0.9.7e.
   SSL* ssl = const_cast<SSL*>(ssl_);
-  if (where & SSL_CB_HANDSHAKE_START) {
+
+  if (!(where & (SSL_CB_HANDSHAKE_START | SSL_CB_HANDSHAKE_DONE))) return;
+
+  // This callback may be called from another thread
+  Connection* c = static_cast<Connection*>(SSL_get_app_data(ssl));
+  c->info_where_ = c->info_where_ | where;
+  uv_async_send(&c->info_callback_);
+}
+
+
+void Connection::SSLInfoCallback(uv_async_t* handle, int status) {
+  Connection* c = container_of(handle, Connection, info_callback_);
+
+  if (c->info_where_ & SSL_CB_HANDSHAKE_START) {
     HandleScope scope;
-    Connection* c = static_cast<Connection*>(SSL_get_app_data(ssl));
     if (onhandshakestart_sym.IsEmpty()) {
       onhandshakestart_sym = NODE_PSYMBOL("onhandshakestart");
     }
     MakeCallback(c->handle_, onhandshakestart_sym, 0, NULL);
   }
-  if (where & SSL_CB_HANDSHAKE_DONE) {
+  if (c->info_where_ & SSL_CB_HANDSHAKE_DONE) {
     HandleScope scope;
-    Connection* c = static_cast<Connection*>(SSL_get_app_data(ssl));
     if (onhandshakedone_sym.IsEmpty()) {
       onhandshakedone_sym = NODE_PSYMBOL("onhandshakedone");
     }
@@ -1236,8 +1254,10 @@ void Connection::RequestDone(uv_work_t* work) {
   ConnectionRequest* req = container_of(work, ConnectionRequest, work_);
   Connection* c = req->c_;
 
-  if (req->message_ != NULL) c->HandleSSLError(req->message_, req->bytes_);
-  if (req->set_shutdown_) c->SetShutdownFlags();
+  if (c->ssl_ != NULL) {
+    if (req->message_ != NULL) c->HandleSSLError(req->message_, req->bytes_);
+    if (req->set_shutdown_) c->SetShutdownFlags();
+  }
 
   Handle<Value> argv[2] = { Null(), Number::New(req->bytes_) };
   MakeCallback(Context::GetCurrent()->Global(),

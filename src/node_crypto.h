@@ -222,6 +222,8 @@ class Connection : ObjectWrap {
     bio_read_ = bio_write_ = NULL;
     ssl_ = NULL;
     uv_mutex_init(&request_mutex_);
+    info_where_ = 0;
+    uv_async_init(uv_default_loop(), &info_callback_, SSLInfoCallback);
   }
 
   ~Connection() {
@@ -242,14 +244,19 @@ class Connection : ObjectWrap {
 #endif
 
     uv_mutex_destroy(&request_mutex_);
+    uv_close(reinterpret_cast<uv_handle_t*>(&info_callback_), NULL);
   }
 
  private:
   static void SSLInfoCallback(const SSL *ssl, int where, int ret);
+  static void SSLInfoCallback(uv_async_t* handle, int status);
 
   BIO *bio_read_;
   BIO *bio_write_;
   SSL *ssl_;
+
+  int info_where_;
+  uv_async_t info_callback_;
 
   uv_mutex_t request_mutex_;
 
