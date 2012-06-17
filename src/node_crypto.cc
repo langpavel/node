@@ -1277,7 +1277,9 @@ Handle<Value> Connection::ClearPending(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
+  uv_mutex_lock(&ss->request_mutex_);
   int bytes_pending = BIO_pending(ss->bio_read_);
+  uv_mutex_unlock(&ss->request_mutex_);
   return scope.Close(Integer::New(bytes_pending));
 }
 
@@ -1287,7 +1289,9 @@ Handle<Value> Connection::EncPending(const Arguments& args) {
 
   Connection *ss = Connection::Unwrap(args);
 
+  uv_mutex_lock(&ss->request_mutex_);
   int bytes_pending = BIO_pending(ss->bio_write_);
+  uv_mutex_unlock(&ss->request_mutex_);
   return scope.Close(Integer::New(bytes_pending));
 }
 
