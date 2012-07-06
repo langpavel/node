@@ -21,8 +21,10 @@
 
 #include "node.h"
 #include "ssl_sess_storage.h"
+#include "node_crypto.h"
 
 #include <string.h> // memset
+#include <sys/mman.h> // mmap
 
 #define UNWRAP_STORAGE(ctx)\
     SessionStorage* storage = reinterpret_cast<SessionStorage*>(\
@@ -31,44 +33,119 @@
 namespace node {
 namespace crypto {
 
+using namespace v8;
+
 
 int SessionStorage::ssl_idx = -1;
 
 
-SessionStorage* SessionStorage::Init(SSL_CTX* ctx,
-                                     int32_t size,
-                                     int64_t timeout) {
-  SSL_CTX_set_session_cache_mode(ctx,
-                                 SSL_SESS_CACHE_SERVER |
-                                 SSL_SESS_CACHE_NO_INTERNAL |
-                                 SSL_SESS_CACHE_NO_AUTO_CLEAR);
-  SSL_CTX_sess_set_new_cb(ctx, SessionStorage::New);
-  SSL_CTX_sess_set_get_cb(ctx, SessionStorage::Get);
-  SSL_CTX_sess_set_remove_cb(ctx, SessionStorage::Remove);
+SessionStorage* SessionStorage::Setup(SecureContext* sc,
+                                      Handle<Object> options) {
 
   // Register storage's index
   if (ssl_idx == -1) {
-    // TODO: Destroy SessionStorage somehow
     ssl_idx = SSL_CTX_get_ex_new_index(0, NULL, NULL, NULL, NULL);
     assert(ssl_idx != -1);
   }
 
   // Create new storage and put it inside SSL_CTX
-  SessionStorage* storage = new SessionStorage(ctx, size, timeout);
-  SSL_CTX_set_ex_data(ctx, ssl_idx, storage);
+  SessionStorage* storage = Create(sc, options, kLocal);
+
+  Setup(sc, storage);
 
   return storage;
 }
 
 
-SessionStorage::SessionStorage(SSL_CTX* ctx, int32_t size, uint64_t timeout)
-    : ctx_(ctx),
-      map_(new KeyValue*[size]),
-      size_(size),
-      mask_(size - 1),
-      expire_timeout_(timeout) {
+void SessionStorage::Setup(SecureContext* sc, SessionStorage* storage) {
+  if (sc->storage_ != NULL) SessionStorage::Destroy(sc->storage_);
+  sc->storage_ = storage;
+
+  SSL_CTX_set_session_cache_mode(sc->ctx_,
+                                 SSL_SESS_CACHE_SERVER |
+                                 SSL_SESS_CACHE_NO_INTERNAL |
+                                 SSL_SESS_CACHE_NO_AUTO_CLEAR);
+  SSL_CTX_sess_set_new_cb(sc->ctx_, SessionStorage::New);
+  SSL_CTX_sess_set_get_cb(sc->ctx_, SessionStorage::Get);
+  SSL_CTX_sess_set_remove_cb(sc->ctx_, SessionStorage::Remove);
+  SSL_CTX_set_ex_data(sc->ctx_, ssl_idx, storage);
+  SSL_CTX_set_timeout(sc->ctx_, storage->timeout_ / 1e9);
+}
+
+
+SessionStorage* SessionStorage::Create(SecureContext* sc,
+                                       Handle<Object> options,
+                                       StorageType type) {
+  HandleScope scope;
+
+  int size = 10 * 1024;
+  int64_t timeout = 5 * 60 * 1e9; // 5 minutes
+
+  Local<Value> size_prop = options->Get(String::NewSymbol("size"));
+  if (size_prop->IsNumber()) size = size_prop->Int32Value();
+
+  Local<Value> timeout_prop = options->Get(String::NewSymbol("timeout"));
+  if (timeout_prop->IsNumber()) timeout = timeout_prop->IntegerValue() * 1e6;
+
+  if (type == kLocal) {
+    return new SessionStorage(size, timeout);
+  } else {
+    return CreateShared(size, timeout);
+  }
+}
+
+
+SessionStorage* SessionStorage::CreateShared(int32_t size, uint64_t timeout) {
+  void* raw = mmap(NULL,
+                   sizeof(SessionStorage) + sizeof(KeyValue*[size]),
+                   PROT_READ | PROT_WRITE,
+                   MAP_ANON | MAP_SHARED,
+                   -1,
+                   0);
+  if (raw == reinterpret_cast<void*>(-1)) abort();
+  memset(raw, 0, sizeof(SessionStorage) + sizeof(KeyValue*[size]));
+
+  SessionStorage* storage = reinterpret_cast<SessionStorage*>(raw);
+  storage->map_ = reinterpret_cast<KeyValue**>(
+      reinterpret_cast<char*>(raw) + sizeof(SessionStorage));
+
+  storage->Init(size, timeout, kShared);
+  uv_mutex_init_shared(&storage->mutex_);
+
+  assert(storage->is_shared());
+  fprintf(stdout, "master: %p size: %d\n", storage, storage->size_);
+
+  return storage;
+}
+
+
+void SessionStorage::Destroy(SessionStorage* storage) {
+  if (storage->is_local()) {
+    delete storage;
+  } else {
+    if (munmap(storage, sizeof(SessionStorage) +
+                        sizeof(KeyValue*[storage->size_]))) {
+      abort();
+    }
+  }
+}
+
+
+SessionStorage::SessionStorage(int32_t size, uint64_t timeout)
+    : map_(new KeyValue*[size]) {
+  Init(size, timeout, kLocal);
+
   // Nullify map
   memset(map_, 0, sizeof(map_[0]) * size_);
+  uv_mutex_init(&mutex_);
+}
+
+
+void SessionStorage::Init(int32_t size, uint64_t timeout, StorageType type) {
+  type_ = type;
+  size_ = size;
+  mask_ = size - 1;
+  timeout_ = timeout;
 }
 
 
@@ -114,7 +191,7 @@ uint32_t SessionStorage::GetIndex(unsigned char* key, int len) {
   uint32_t index;
   int tries = 0;
 
-  uint64_t expire_edge = uv_hrtime() - expire_timeout_;
+  uint64_t expire_edge = uv_hrtime() - timeout_;
 
   // Find closest cell with the same key value
   for (index = start; tries < 10; tries++, index = (index + 1) & mask_) {
@@ -140,7 +217,8 @@ uint32_t SessionStorage::GetIndex(unsigned char* key, int len) {
 
 
 void SessionStorage::RemoveExpired() {
-  uint64_t expire_edge = uv_hrtime() - expire_timeout_;
+  uv_mutex_lock(&mutex_);
+  uint64_t expire_edge = uv_hrtime() - timeout_;
   for (uint32_t i = 0; i < size_; i++) {
     if (map_[i] == NULL) continue;
     if (map_[i]->created_ < expire_edge) {
@@ -148,6 +226,7 @@ void SessionStorage::RemoveExpired() {
       map_[i] = NULL;
     }
   }
+  uv_mutex_unlock(&mutex_);
 }
 
 
@@ -164,12 +243,14 @@ int SessionStorage::New(SSL* ssl, SSL_SESSION* sess) {
   memset(serialized, 0, size);
   i2d_SSL_SESSION(sess, &pserialized);
 
+  uv_mutex_lock(&storage->mutex_);
   // Put it into hashmap
   uint32_t index = storage->GetIndex(sess->session_id, sess->session_id_length);
   storage->map_[index] = new KeyValue(sess->session_id,
                                       sess->session_id_length,
                                       serialized,
                                       size);
+  uv_mutex_unlock(&storage->mutex_);
 
   return 0;
 }
@@ -178,10 +259,12 @@ int SessionStorage::New(SSL* ssl, SSL_SESSION* sess) {
 void SessionStorage::Remove(SSL_CTX* ctx, SSL_SESSION* sess) {
   UNWRAP_STORAGE(ctx)
 
+  uv_mutex_lock(&storage->mutex_);
   uint32_t index = storage->GetIndex(sess->session_id, sess->session_id_length);
 
   delete storage->map_[index];
   storage->map_[index] = NULL;
+  uv_mutex_unlock(&storage->mutex_);
 }
 
 
@@ -194,13 +277,16 @@ SSL_SESSION* SessionStorage::Get(SSL* ssl,
   // Do not use ref-counting for this session
   *copy = NULL;
 
+  uv_mutex_lock(&storage->mutex_);
   uint32_t index = storage->GetIndex(id, len);
 
+  SSL_SESSION* sess = NULL;
   KeyValue* kv = storage->map_[index];
-  if (kv == NULL) return NULL;
-
-  const unsigned char* buf = kv->value_;
-  SSL_SESSION* sess = d2i_SSL_SESSION(NULL, &buf, kv->value_len_);
+  if (kv != NULL) {
+    const unsigned char* buf = kv->value_;
+    sess = d2i_SSL_SESSION(NULL, &buf, kv->value_len_);
+  }
+  uv_mutex_unlock(&storage->mutex_);
 
   return sess;
 }

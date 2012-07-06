@@ -151,6 +151,10 @@ void SecureContext::Initialize(Handle<Object> target) {
   NODE_SET_PROTOTYPE_METHOD(t, "setOptions", SecureContext::SetOptions);
   NODE_SET_PROTOTYPE_METHOD(t, "setSessionIdContext",
                                SecureContext::SetSessionIdContext);
+  NODE_SET_METHOD(t, "createSharedSessionStorage",
+                  SecureContext::CreateSharedSessionStorage);
+  NODE_SET_PROTOTYPE_METHOD(t, "useSharedSessionStorage",
+                               SecureContext::UseSharedSessionStorage);
   NODE_SET_PROTOTYPE_METHOD(t, "enableSessionStorage",
                                SecureContext::EnableSessionStorage);
   NODE_SET_PROTOTYPE_METHOD(t, "cleanSessionStorage",
@@ -590,27 +594,52 @@ Handle<Value> SecureContext::EnableSessionStorage(const Arguments& args) {
 
   SecureContext *sc = ObjectWrap::Unwrap<SecureContext>(args.Holder());
 
-  if (args.Length() != 1) {
+  if (args.Length() != 1 || !args[0]->IsObject()) {
     return ThrowException(Exception::TypeError(String::New("Bad parameter")));
   }
 
   // Return false if session storage was already created
   if (sc->ctx_ == NULL || sc->storage_ != NULL) return False();
 
-  Local<Object> options = args[0]->ToObject();
-
-  int size = 10 * 1024;
-  int64_t timeout = 5 * 60 * 1e9; // 5 minutes
-
-  Local<Value> size_prop = options->Get(String::NewSymbol("size"));
-  if (size_prop->IsNumber()) size = size_prop->Int32Value();
-  Local<Value> timeout_prop = options->Get(String::NewSymbol("timeout"));
-  if (timeout_prop->IsNumber()) timeout = timeout_prop->IntegerValue() * 1e6;
-
   // Disable internal session storage, use external one
-  sc->storage_ = SessionStorage::Init(sc->ctx_, size, timeout);
+  SessionStorage::Setup(sc, args[0].As<Object>());
 
   return True();
+}
+
+Handle<Value> SecureContext::CreateSharedSessionStorage(const Arguments& args) {
+  HandleScope scope;
+
+  if (args.Length() != 1 || !args[0]->IsObject()) {
+    return ThrowException(Exception::TypeError(String::New("Bad parameter")));
+  }
+
+  SessionStorage* storage = SessionStorage::Create(NULL,
+                                                   args[0].As<Object>(),
+                                                   SessionStorage::kShared);
+  Buffer* buffer = Buffer::New(reinterpret_cast<char*>(&storage),
+                               sizeof(storage));
+
+  return scope.Close(buffer->handle_);
+}
+
+Handle<Value> SecureContext::UseSharedSessionStorage(const Arguments& args) {
+  HandleScope scope;
+
+  SecureContext *sc = ObjectWrap::Unwrap<SecureContext>(args.Holder());
+
+  if (args.Length() != 1 || !Buffer::HasInstance(args[0])) {
+    return ThrowException(Exception::TypeError(String::New("Bad parameter")));
+  }
+
+  assert(Buffer::Length(args[0].As<Object>()) == sizeof(SessionStorage*));
+
+  SessionStorage* st = SessionStorage::Cast(
+      *reinterpret_cast<char**>(Buffer::Data(args[0].As<Object>())));
+  assert(st->is_shared());
+  SessionStorage::Setup(sc, st);
+
+  return False();
 }
 
 Handle<Value> SecureContext::CleanSessionStorage(const Arguments& args) {

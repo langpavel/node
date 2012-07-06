@@ -71,6 +71,10 @@ class SecureContext : ObjectWrap {
   static v8::Handle<v8::Value> SetOptions(const v8::Arguments& args);
   static v8::Handle<v8::Value> SetSessionIdContext(const v8::Arguments& args);
   static v8::Handle<v8::Value> EnableSessionStorage(const v8::Arguments& args);
+  static v8::Handle<v8::Value> CreateSharedSessionStorage(
+      const v8::Arguments& args);
+  static v8::Handle<v8::Value> UseSharedSessionStorage(
+      const v8::Arguments& args);
   static v8::Handle<v8::Value> CleanSessionStorage(const v8::Arguments& args);
   static v8::Handle<v8::Value> Close(const v8::Arguments& args);
   static v8::Handle<v8::Value> LoadPKCS12(const v8::Arguments& args);
@@ -92,7 +96,7 @@ class SecureContext : ObjectWrap {
       SSL_CTX_free(ctx_);
       ctx_ = NULL;
       ca_store_ = NULL;
-      if (storage_ != NULL) delete storage_;
+      if (storage_ != NULL) SessionStorage::Destroy(storage_);
     } else {
       assert(ca_store_ == NULL);
       assert(storage_ == NULL);

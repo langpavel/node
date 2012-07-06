@@ -61,6 +61,29 @@ int uv_mutex_init(uv_mutex_t* mutex) {
 }
 
 
+int uv_mutex_init_shared(uv_mutex_t* handle) {
+  int r;
+  pthread_mutexattr_t attr;
+
+  if (pthread_mutexattr_init(&attr)) return -1;
+
+  r = pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+  if (r) goto end;
+
+#ifndef NDEBUG
+  if (pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_ERRORCHECK))
+    abort();
+#endif
+
+  r = pthread_mutex_init(handle, &attr);
+
+end:
+  if (pthread_mutexattr_destroy(&attr)) return -1;
+
+  return r ? -1 : 0;
+}
+
+
 void uv_mutex_destroy(uv_mutex_t* mutex) {
   if (pthread_mutex_destroy(mutex))
     abort();

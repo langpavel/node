@@ -1671,6 +1671,7 @@ UV_EXTERN const char* uv_dlerror(uv_lib_t* lib);
  * (unless the return type is void, of course).
  */
 UV_EXTERN int uv_mutex_init(uv_mutex_t* handle);
+UV_EXTERN int uv_mutex_init_shared(uv_mutex_t* handle);
 UV_EXTERN void uv_mutex_destroy(uv_mutex_t* handle);
 UV_EXTERN void uv_mutex_lock(uv_mutex_t* handle);
 UV_EXTERN int uv_mutex_trylock(uv_mutex_t* handle);

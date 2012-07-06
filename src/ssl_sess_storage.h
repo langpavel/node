@@ -30,6 +30,11 @@
 namespace node {
 namespace crypto {
 
+using namespace v8;
+
+// Forward declaration
+class SecureContext;
+
 class SessionStorage {
  public:
   // Content of hashmap's space's cell
@@ -55,33 +60,54 @@ class SessionStorage {
     friend class SessionStorage;
   };
 
-  SessionStorage(SSL_CTX* ctx, int32_t size, uint64_t timeout);
+  enum StorageType {
+    kLocal,
+    kShared
+  };
+
+  SessionStorage(int32_t size, uint64_t timeout);
   ~SessionStorage() {
     delete[] map_;
   }
 
+  void Init(int32_t size, uint64_t timeout, StorageType type);
   uint32_t GetIndex(unsigned char* key, int len);
   void RemoveExpired();
 
-  static SessionStorage* Init(SSL_CTX* ctx, int32_t size, int64_t timeout);
+  static SessionStorage* CreateShared(int32_t size, uint64_t timeout);
+  static SessionStorage* Setup(SecureContext* sc, Handle<Object> options);
+  static void Setup(SecureContext* sc, SessionStorage* storage);
+  static SessionStorage* Create(SecureContext* sc,
+                                Handle<Object> options,
+                                StorageType type);
+  static void Destroy(SessionStorage* storage);
+
   static inline uint32_t Hash(unsigned char* key, int len);
   static int New(SSL* ssl, SSL_SESSION* sess);
   static void Remove(SSL_CTX* ctx, SSL_SESSION* sess);
   static SSL_SESSION* Get(SSL* ssl, unsigned char* id, int len, int* copy);
 
- protected:
-  SSL_CTX* ctx_;
+  static inline SessionStorage* Cast(char* storage) {
+    return reinterpret_cast<SessionStorage*>(storage);
+  }
+
+  inline bool is_local() { return type_ == kLocal; }
+  inline bool is_shared() { return type_ == kShared; }
+
+ public:
+  StorageType type_;
 
   KeyValue** map_;
   uint32_t size_;
   uint32_t mask_;
-  uint64_t expire_timeout_;
+  uint64_t timeout_;
 
   // Max serialized session size
   static const int kMaxSessionSize = 1024 * 8;
 
   // Index in SSL_CTX where SessionStorage instance will be stored
   static int ssl_idx;
+  uv_mutex_t mutex_;
 };
 
 } // namespace crypto
