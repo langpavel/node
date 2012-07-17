@@ -19,32 +19,28 @@
 // OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+
+// Make sure that the domain stack doesn't get out of hand.
+
 var common = require('../common');
-var assert = require('assert'),
-    zlib = require('zlib'),
-    started = 0,
-    done = 0;
+var assert = require('assert');
+var domain = require('domain');
+var events = require('events');
 
-function repeat(fn) {
-  if (started != 0) {
-    assert.ok(started - done < 200);
-  }
+var a = domain.create();
+a.name = 'a';
 
-  process.nextTick(function() {
-    fn();
-    repeat(fn);
-  });
-}
-
-repeat(function() {
-  if (started > 1000) return process.exit(0);
-
-  for (var i = 0; i < 30; i++) {
-    started++;
-    var deflate = zlib.createDeflate();
-    deflate.write('123');
-    deflate.flush(function() {
-      done++;
-    });
+a.on('error', function() {
+  if (domain._stack.length > 5) {
+    console.error('leaking!', domain._stack);
+    process.exit(1);
   }
 });
+
+var foo = a.bind(function() {
+  throw new Error('error from foo');
+});
+
+for (var i = 0; i < 1000; i++) {
+  process.nextTick(foo);
+}
