@@ -1089,6 +1089,11 @@ enum encoding ParseEncoding(Handle<Value> encoding_v, enum encoding _default) {
 Local<Value> Encode(const void *buf, size_t len, enum encoding encoding) {
   HandleScope scope;
 
+  if (encoding == BUFFER) {
+    const char* data = reinterpret_cast<const char*>(buf);
+    return scope.Close(Buffer::New(const_cast<char*>(data), len)->handle_);
+  }
+
   if (!len) return scope.Close(String::Empty());
 
   if (encoding == BINARY) {
@@ -1119,7 +1124,7 @@ ssize_t DecodeBytes(v8::Handle<v8::Value> val, enum encoding encoding) {
     return -1;
   }
 
-  if (encoding == BINARY && Buffer::HasInstance(val)) {
+  if ((encoding == BUFFER || encoding == BINARY) && Buffer::HasInstance(val)) {
     return Buffer::Length(val->ToObject());
   }
 
@@ -1158,7 +1163,8 @@ ssize_t DecodeWrite(char *buf,
 
   bool is_buffer = Buffer::HasInstance(val);
 
-  if (is_buffer && encoding == BINARY) { // fast path, copy buffer data
+  if (is_buffer && (encoding == BINARY || encoding == BUFFER)) {
+    // fast path, copy buffer data
     const char* data = Buffer::Data(val.As<Object>());
     size_t size = Buffer::Length(val.As<Object>());
     size_t len = size < buflen ? size : buflen;
