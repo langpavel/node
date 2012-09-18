@@ -29,8 +29,14 @@ var http = require('http');
 var s = http.createServer(function(req, res) {
   var contentType = 'Content-Type';
   var plain = 'text/plain';
+
   res.setHeader(contentType, plain);
+  var headers1 = res.getHeaders();
+  assert.deepEqual(headers1, {'Content-Type': 'text/plain'});
   res.writeHead(200);
+  var headers2 = res.getHeaders();
+  assert.deepEqual(headers2, headers1);
+
   res.end('hello world\n');
   // This checks that after the headers have been sent, getHeader works
   // and does not throw an exception (Issue 752)

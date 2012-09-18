@@ -409,12 +409,21 @@ in responses.
 ### response.getHeader(name)
 
 Reads out a header that's already been queued but not sent to the client.  Note
-that the name is case insensitive.  This can only be called before headers get
-implicitly flushed.
+that the name is case insensitive.  
 
 Example:
 
     var contentType = response.getHeader('content-type');
+
+### response.getHeaders()
+
+Reads out all headers that's already been queued but not sent to the client.
+Keys are proper-case as they will (or was) sent.  Usefull for logging
+
+Example:
+
+    console.log(response.getHeaders());
+    // { 'Content-Type': 'text/plain' }
 
 ### response.removeHeader(name)
 
