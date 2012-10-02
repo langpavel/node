@@ -63,19 +63,19 @@ testHash('sha1', 'hex');
 testHash('sha1', 'base64');
 
 
-var testHmac = function(hashName, hashEncoding) {
+var testHmac = function(hashName, key, hashEncoding) {
   // create reference digest
-  var hashBuffer = crypto.createHash(hashName);
-  hashBuffer.update(referenceBuffer);
-  var digestBuffer = hashBuffer.digest(hashEncoding || 'buffer');
+  var hmacBuffer = crypto.createHmac(hashName, key);
+  hmacBuffer.update(referenceBuffer);
+  var digestBuffer = hmacBuffer.digest(hashEncoding || 'buffer');
 
   // create digest from stream
   var stream = fs.createReadStream(filePath, readStreamOptions);
-  var hashStream = crypto.createHashStream(hashName, { outputEncoding: hashEncoding });
+  var hmacStream = crypto.createHmacStream(hashName, key, { outputEncoding: hashEncoding });
 
-  stream.pipe(hashStream);
+  stream.pipe(hmacStream);
 
-  hashStream.on('data', function(data) {
+  hmacStream.on('data', function(data) {
     assert.deepEqual(data, digestBuffer);
   });
 };
@@ -92,3 +92,16 @@ testHash('sha1', 'base64');
 testHash('sha256', null);
 testHash('sha256', 'hex');
 testHash('sha256', 'base64');
+
+
+testHmac('md5', 'secret', null);
+testHmac('md5', 'secret', 'hex');
+testHmac('md5', 'secret', 'base64');
+
+testHmac('sha1', 'secret', null);
+testHmac('sha1', 'secret', 'hex');
+testHmac('sha1', 'secret', 'base64');
+
+testHmac('sha256', 'secret', null);
+testHmac('sha256', 'secret', 'hex');
+testHmac('sha256', 'secret', 'base64');
